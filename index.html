@@ -65,6 +65,12 @@
                 📡 รายงานพิกัดภาคสนาม (GPS) + ข้อความ
             </button>
         </div>
+
+        <div class="w-full mt-1 pt-2 border-t border-cyan-500/30 flex justify-center">
+            <button onclick="window.resetAllData()" class="w-full px-3 py-1.5 bg-red-600/20 border border-red-500 text-red-400 rounded-lg text-xs shadow-[0_0_10px_rgba(239,68,68,0.3)] hover:bg-red-500 hover:text-white transition">
+                ⚠️ ล้างข้อมูลแผนที่ทั้งหมด (Reset)
+            </button>
+        </div>
     </div>
 
     <div id="map"></div>
@@ -94,24 +100,24 @@
             });
         }, 1000);
 
-        // ตั้งค่าแผนที่: ศูนย์กลางขอนแก่น + ระบบหมุนแผนที่ (rotate: true)
+        // ตั้งค่าแผนที่: ศูนย์กลางขอนแก่น + ระบบหมุนแผนที่
         const map = L.map('map', { 
             zoomControl: false,
-            boxZoom: false,        // เลิกจองปุ่ม Shift ในการซูมกรอบ เพื่อให้ใช้ Shift หมุนแผนที่ได้
-            rotate: true,          // เปิดฟีเจอร์หมุน
-            touchRotate: true,     // รองรับการหมุนด้วยนิ้วสัมผัส
-            rotateControl: { position: 'bottomright', closeOnZeroBearing: false }, // เข็มทิศ
+            boxZoom: false,        // ปิด Box Zoom เพื่อให้ใช้ Shift หมุนแผนที่ได้
+            rotate: true,
+            touchRotate: true,
+            rotateControl: { position: 'bottomright', closeOnZeroBearing: false },
             bearing: 0 
-        }).setView([16.4322, 102.8236], 13); // พิกัดใจกลางเมืองขอนแก่น
+        }).setView([16.4322, 102.8236], 13);
 
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-        // ชั้นข้อมูลแผนที่ (เปลี่ยนดาวเทียมเป็นค่าเริ่มต้น โดยใส่ .addTo(map))
+        // ชั้นข้อมูลแผนที่ (ภาพถ่ายดาวเทียมเป็นค่าเริ่มต้น)
         const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 });
         const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map); 
         const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
 
-        // สร้าง Group แยกประเภทเพื่อใช้ในการ เปิด/ปิด Layer
+        // สร้าง Group
         const markersGroup = L.featureGroup().addTo(map);
         const shapesGroup = L.featureGroup().addTo(map);
         const gpsReportsGroup = L.featureGroup().addTo(map);
@@ -135,7 +141,7 @@
             position: 'topleft', 
             drawCircle: false, 
             drawCircleMarker: false, 
-            drawText: true // เปิดใช้งานเครื่องมือพิมพ์ข้อความ
+            drawText: true 
         });
         map.pm.setGlobalOptions({ layerGroup: shapesGroup, pathOptions: { color: '#06b6d4', weight: 4 } });
 
@@ -202,12 +208,11 @@
                     if (!isSyncing) update(ref(db, 'disaster_layers/' + id), { lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
                 });
             } else if (item.geojson) {
-                // สร้าง layer จากพิกัดและเช็คว่ามันเป็นข้อความหรือไม่
                 const layerGroup = L.geoJSON(item.geojson, { 
                     style: { color: item.color || '#06b6d4', weight: 4, fillOpacity: 0.3 },
                     pointToLayer: function(feature, latlng) {
                         if (item.shape === 'Text' && item.text) {
-                            return L.marker(latlng, { textMarker: true, text: item.text }); // คืนค่าเป็น Text Marker
+                            return L.marker(latlng, { textMarker: true, text: item.text });
                         }
                         return L.circleMarker(latlng);
                     }
@@ -220,7 +225,6 @@
                         if (!isSyncing) {
                             let updatedText = item.text;
                             const targetLayer = e.target;
-                            // อัปเดตข้อความใหม่เวลาแก้
                             if (targetLayer.pm && targetLayer.pm.getShape() === 'Text') {
                                 updatedText = targetLayer.getElement()?.innerText || targetLayer.options.text;
                             }
@@ -243,6 +247,22 @@
 
         window.deleteFirebaseLayer = function(id) {
             remove(ref(db, 'disaster_layers/' + id));
+        };
+
+        // ฟังก์ชัน Reset ล้างข้อมูลทั้งหมด
+        window.resetAllData = function() {
+            const pwd = prompt("⚠️ คำเตือน: ระบบจะทำการล้างข้อมูลทั้งหมดบนแผนที่\n\nกรุณาป้อนรหัสผ่านเพื่อยืนยัน:");
+            
+            if (pwd === "878556") {
+                if (confirm("คุณแน่ใจหรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้ ข้อมูลจะหายไปจากทุกหน้าจอทันที")) {
+                    // สั่งลบข้อมูลที่ node 'disaster_layers' ทิ้งทั้งก้อน
+                    remove(ref(db, 'disaster_layers'))
+                        .then(() => alert("✅ ล้างข้อมูลแผนที่เรียบร้อยแล้ว"))
+                        .catch((err) => alert("❌ เกิดข้อผิดพลาดในการลบข้อมูล: " + err.message));
+                }
+            } else if (pwd !== null) {
+                alert("❌ รหัสผ่านไม่ถูกต้อง");
+            }
         };
 
         window.reportLocation = function() {
@@ -281,7 +301,6 @@
             const id = 'shape_' + Date.now();
             e.layer.options.firebaseId = id;
             
-            // อ่านค่าข้อความเพื่อเซฟขึ้น Firebase ถ้าเป็น Text Marker
             let textVal = null;
             if (e.shape === 'Text') {
                 textVal = e.layer.options.text; 
@@ -289,7 +308,7 @@
 
             set(ref(db, 'disaster_layers/' + id), { 
                 type: 'drawn', 
-                shape: e.shape, // ระบุว่าเป็น Text, Polygon หรือ Polyline
+                shape: e.shape,
                 geojson: e.layer.toGeoJSON(), 
                 color: e.layer.options.color || '#06b6d4',
                 text: textVal
