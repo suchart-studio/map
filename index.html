@@ -73,7 +73,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
         import { getDatabase, ref, set, onValue, update, remove } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
 
-        // Firebase Config ของคุณ
         const firebaseConfig = {
             apiKey: "AIzaSyCJ-E8bN9nz_BWKTNofz7ccuVoo6m8LyAU",
             authDomain: "suchart-915bd.firebaseapp.com",
@@ -98,6 +97,7 @@
         // ตั้งค่าแผนที่: ศูนย์กลางขอนแก่น + ระบบหมุนแผนที่ (rotate: true)
         const map = L.map('map', { 
             zoomControl: false,
+            boxZoom: false,        // เลิกจองปุ่ม Shift ในการซูมกรอบ เพื่อให้ใช้ Shift หมุนแผนที่ได้
             rotate: true,          // เปิดฟีเจอร์หมุน
             touchRotate: true,     // รองรับการหมุนด้วยนิ้วสัมผัส
             rotateControl: { position: 'bottomright', closeOnZeroBearing: false }, // เข็มทิศ
@@ -106,9 +106,9 @@
 
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-        // ชั้นข้อมูลแผนที่
-        const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
-        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+        // ชั้นข้อมูลแผนที่ (เปลี่ยนดาวเทียมเป็นค่าเริ่มต้น โดยใส่ .addTo(map))
+        const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 });
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map); 
         const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
 
         // สร้าง Group แยกประเภทเพื่อใช้ในการ เปิด/ปิด Layer
@@ -117,8 +117,8 @@
         const gpsReportsGroup = L.featureGroup().addTo(map);
 
         const baseMaps = {
-            "แผนที่ยุทธการ (Dark)": darkLayer,
             "ภาพถ่ายดาวเทียม (Satellite)": satelliteLayer,
+            "แผนที่ยุทธการ (Dark)": darkLayer,
             "แผนที่ถนน (OSM)": streetLayer
         };
 
@@ -128,11 +128,15 @@
             "📡 รายงานภาคสนาม": gpsReportsGroup
         };
 
-        // เพิ่มเมนูควบคุมการปิด/เปิด Layer มุมซ้ายล่าง
         L.control.layers(baseMaps, overlayMaps, { position: 'bottomleft', collapsed: false }).addTo(map);
 
         // Geoman จะวาดลงในกลุ่ม shapesGroup
-        map.pm.addControls({ position: 'topleft', drawCircle: false, drawCircleMarker: false, drawText: false });
+        map.pm.addControls({ 
+            position: 'topleft', 
+            drawCircle: false, 
+            drawCircleMarker: false, 
+            drawText: true // เปิดใช้งานเครื่องมือพิมพ์ข้อความ
+        });
         map.pm.setGlobalOptions({ layerGroup: shapesGroup, pathOptions: { color: '#06b6d4', weight: 4 } });
 
         // ================= Firebase Sync =================
@@ -168,7 +172,6 @@
         function renderLayerToMap(id, item) {
             if (item.type === 'marker' || item.type === 'gps') {
                 const isGPS = item.type === 'gps';
-                // แยกสีขอบหมุด GPS ให้เป็นสีเขียว หมุดทั่วไปสีฟ้า
                 const borderColor = isGPS ? '#22c55e' : '#06b6d4'; 
                 const shadowColor = isGPS ? '#22c55e' : '#06b6d4';
 
@@ -183,7 +186,6 @@
                 marker.options.firebaseId = id;
                 marker.options.customType = item.type;
                 
-                // ตกแต่ง Popup ถ้าเป็น GPS ให้แสดงข้อความและเวลา
                 let popupHTML = '';
                 if (isGPS) {
                     popupHTML = `<div class="text-center font-prompt"><p class="font-bold text-green-400 text-base mb-1">${item.title}</p>
@@ -200,20 +202,39 @@
                     if (!isSyncing) update(ref(db, 'disaster_layers/' + id), { lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng });
                 });
             } else if (item.geojson) {
-                const layer = L.geoJSON(item.geojson, { style: { color: item.color || '#06b6d4', weight: 4, fillOpacity: 0.3 } });
-                layer.eachLayer(l => {
+                // สร้าง layer จากพิกัดและเช็คว่ามันเป็นข้อความหรือไม่
+                const layerGroup = L.geoJSON(item.geojson, { 
+                    style: { color: item.color || '#06b6d4', weight: 4, fillOpacity: 0.3 },
+                    pointToLayer: function(feature, latlng) {
+                        if (item.shape === 'Text' && item.text) {
+                            return L.marker(latlng, { textMarker: true, text: item.text }); // คืนค่าเป็น Text Marker
+                        }
+                        return L.circleMarker(latlng);
+                    }
+                });
+
+                layerGroup.eachLayer(l => {
                     l.options.firebaseId = id; l.options.customType = 'drawn';
                     shapesGroup.addLayer(l);
-                    l.on('pm:edit', (e) => { if (!isSyncing) update(ref(db, 'disaster_layers/' + id), { geojson: e.layer.toGeoJSON() }); });
+                    l.on('pm:edit', (e) => { 
+                        if (!isSyncing) {
+                            let updatedText = item.text;
+                            const targetLayer = e.target;
+                            // อัปเดตข้อความใหม่เวลาแก้
+                            if (targetLayer.pm && targetLayer.pm.getShape() === 'Text') {
+                                updatedText = targetLayer.getElement()?.innerText || targetLayer.options.text;
+                            }
+                            update(ref(db, 'disaster_layers/' + id), { geojson: targetLayer.toGeoJSON(), text: updatedText }); 
+                        }
+                    });
                 });
             }
         }
 
         // ================= UI Functions =================
         window.addMarker = function(emoji, defaultTitle) {
-            // ให้ผู้ใช้งานพิมพ์ตั้งชื่อหมุดเองได้
             const customTitle = prompt("กำหนดชื่อหมุด (เช่น หน่วยกู้ภัยที่ 1):", defaultTitle);
-            if (!customTitle) return; // กดยกเลิก
+            if (!customTitle) return; 
 
             const center = map.getCenter();
             const id = 'marker_' + Date.now();
@@ -225,9 +246,8 @@
         };
 
         window.reportLocation = function() {
-            // รับข้อความรายงานสถานการณ์
             const msg = prompt("ระบุข้อความ/สถานการณ์ที่ต้องการรายงาน (เช่น ระดับน้ำท่วม, ไฟไหม้ลุกลาม):");
-            if (msg === null) return; // ถ้ายกเลิกไม่ต้องทำต่อ
+            if (msg === null) return; 
 
             if (navigator.geolocation) {
                 const btn = event.target;
@@ -244,7 +264,7 @@
                     set(ref(db, 'disaster_layers/' + id), {
                         type: 'gps', lat: position.coords.latitude, lng: position.coords.longitude, 
                         emoji: '📡', title: 'เจ้าหน้าที่ภาคสนาม',
-                        message: msg, timestamp: nowStr // บันทึกข้อความและเวลา
+                        message: msg, timestamp: nowStr 
                     });
                     
                     map.flyTo([position.coords.latitude, position.coords.longitude], 16);
@@ -256,14 +276,38 @@
             }
         };
 
-        // Geoman Events
+        // ================= Geoman Events =================
         map.on('pm:create', (e) => {
             const id = 'shape_' + Date.now();
             e.layer.options.firebaseId = id;
-            set(ref(db, 'disaster_layers/' + id), { type: 'drawn', geojson: e.layer.toGeoJSON(), color: e.layer.options.color || '#06b6d4' });
-            e.layer.on('pm:edit', (e) => update(ref(db, 'disaster_layers/' + id), { geojson: e.layer.toGeoJSON() }));
+            
+            // อ่านค่าข้อความเพื่อเซฟขึ้น Firebase ถ้าเป็น Text Marker
+            let textVal = null;
+            if (e.shape === 'Text') {
+                textVal = e.layer.options.text; 
+            }
+
+            set(ref(db, 'disaster_layers/' + id), { 
+                type: 'drawn', 
+                shape: e.shape, // ระบุว่าเป็น Text, Polygon หรือ Polyline
+                geojson: e.layer.toGeoJSON(), 
+                color: e.layer.options.color || '#06b6d4',
+                text: textVal
+            });
+            
+            e.layer.on('pm:edit', (evt) => { 
+                let updatedText = textVal;
+                const targetLayer = evt.target;
+                if (targetLayer.pm && targetLayer.pm.getShape() === 'Text') {
+                    updatedText = targetLayer.getElement()?.innerText || targetLayer.options.text;
+                }
+                update(ref(db, 'disaster_layers/' + id), { geojson: targetLayer.toGeoJSON(), text: updatedText }); 
+            });
         });
-        map.on('pm:remove', (e) => { if (e.layer.options.firebaseId) remove(ref(db, 'disaster_layers/' + e.layer.options.firebaseId)); });
+        
+        map.on('pm:remove', (e) => { 
+            if (e.layer.options.firebaseId) remove(ref(db, 'disaster_layers/' + e.layer.options.firebaseId)); 
+        });
 
     </script>
 </body>
